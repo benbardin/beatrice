@@ -101,7 +101,9 @@ def main(argv=sys.argv):
   if len(argv) != 4:
     print(HELPTEXT)
     exit(1)
+
   # Read in the cast, with all actors who have already been scheduled.
+
   cast_reader = csv.DictReader(open(sys.argv[2]))
   cast = {}
   scheduled_actors = []
@@ -113,6 +115,7 @@ def main(argv=sys.argv):
       scheduled_actors.append(name.strip())
 
   # Read in the list of actors known to be unavailable.
+
   unavailable_actors = []
   with open(sys.argv[3], 'r') as unavailable_file:
     for line in unavailable_file.readlines():
@@ -121,6 +124,7 @@ def main(argv=sys.argv):
         unavailable_actors.append(actor)
 
   # Read in the actor database.
+
   actor_reader = csv.DictReader(open(sys.argv[1]))
   # A map of actor -> how convenient it is to book that actor.
   actor_convenience = {}
@@ -184,6 +188,8 @@ def main(argv=sys.argv):
         # Somebody else is cast in this role, add a penalty for needing to
         # reassign the other actor.
         role_actor_convenience[role][actor] = convenience - SWITCHING_ROLE_PENALTY
+
+  # Generate all possible casts based on above databases.
 
   blank_cast = {}
   for role in cast:
