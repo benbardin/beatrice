@@ -3,7 +3,6 @@
 from collections import defaultdict
 import copy
 import csv
-import pprint
 import random
 import string
 import sys
