@@ -235,27 +235,52 @@ def main(argv=sys.argv):
     score_for_cast = ScoreCast(cast, role_actor_convenience, role_actor_skill)
     scored_casts.append((cast, score_for_cast))
     scores.append(score_for_cast)
+  scored_casts.sort(key=lambda x: x[1], reverse=True)
   scores.sort(reverse=True)
-  rand = random.uniform(0, sum(scores))
 
   # Choose a cast at random, weighted by score.
   running_total = 0
+  rand = random.uniform(0, sum(scores))
   for potential_cast, score in scored_casts:
     running_total += score
     if running_total > rand:
-      rank = scores.index(score)
-      rank += 1  # Correct zero-indexing.
-      print('\nRANDOM CAST (Ranked %d out of %d, Score %d%% of Best):' %
-            (rank, len(scores), score * 100 / scores[0]))
-      for role in sorted(potential_cast):
-        potential_actor = potential_cast[role]
-        reassignment = ''
-        if potential_actor in actor_current_role:
-          current_role = actor_current_role[potential_actor]
-          if current_role != role:
-            reassignment = ' (reassigned from %s)' % current_role
-        print('%s: %s%s' % (role, potential_cast[role], reassignment))
-      break;
+      random_cast = potential_cast
+      random_cast_score = score
+      break
+  best_cast = scored_casts[0][0]
+
+  # Print random cast, side by side with best.
+  # To do this, write a three-column table, then print row-by-row.
+  cast_matrix = [['ROLES', 'RANDOM CAST', 'BEST CAST']]
+  for role in sorted(random_cast):
+    row = [role]
+    random_actor = random_cast[role]
+    if random_actor in actor_current_role:
+      if role != actor_current_role[random_actor]:
+        random_actor += ' (reassigned from %s)' % actor_current_role[random_actor]
+    row.append(random_actor)
+
+    best_actor = best_cast[role]
+    if best_actor in actor_current_role:
+      if role != actor_current_role[best_actor]:
+        best_actor += ' (reassigned from %s)' % actor_current_role[best_actor]
+    row.append(best_actor)
+    cast_matrix.append(row)
+
+  rank = scores.index(score)
+  rank += 1  # Correct zero-indexing.  
+  print('\nRandom Cast ranks %d out of %d, scoring %d%% of Best' %
+        (rank, len(scores), score * 100 / scores[0]))
+
+  # Reorganize data by columns
+  cols = zip(*cast_matrix)
+  # Compute column widths by taking maximum length of values per column
+  col_widths = [ max(len(value) for value in col) + 2 for col in cols ]
+  # Create a suitable format string
+  format = ' '.join(['%%%ds' % width for width in col_widths ])
+  
+  for row in cast_matrix:
+    print(format % tuple(row))
   return 0
 
 if __name__ == "__main__":
