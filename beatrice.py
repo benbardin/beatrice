@@ -79,7 +79,7 @@ def CopyPurgingActor(role_actor, actor):
 # unassigned roles", (b) each iteration reduces the number of
 # unassigned roles by 1, and (c) the starting number of unassigned
 # roles must be a positive, finite integer.
-def FillCast(cast, role_actor, scheduled_actors):
+def GeneratePossibleCasts(cast, role_actor, scheduled_actors):
   role = NextUnfilledRole(cast)
   possible_casts = []
   if role is None:
@@ -94,7 +94,7 @@ def FillCast(cast, role_actor, scheduled_actors):
       cast_copy[role] = actor
       role_actor_copy = CopyPurgingActor(role_actor, actor)
       possible_casts.extend(
-        FillCast(cast_copy, role_actor_copy, scheduled_actors))
+        GeneratePossibleCasts(cast_copy, role_actor_copy, scheduled_actors))
   return possible_casts
 
 def main(argv=sys.argv):
@@ -188,7 +188,7 @@ def main(argv=sys.argv):
   blank_cast = {}
   for role in cast:
     blank_cast[role] = None
-  possible_casts = FillCast(blank_cast, role_actors, scheduled_actors)
+  possible_casts = GeneratePossibleCasts(blank_cast, role_actors, scheduled_actors)
   if len(possible_casts) == 0:
     print('No possible casts! Try being more flexible in actors.csv')
     return 1
