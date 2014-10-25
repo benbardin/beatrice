@@ -105,14 +105,20 @@ def main(argv=sys.argv):
   # Read in the cast, with all actors who have already been scheduled.
 
   cast_reader = csv.DictReader(open(sys.argv[2]))
-  cast = {}
+  current_cast = {}
+  actor_current_role = {}
   scheduled_actors = []
   for entry in cast_reader:
     role = entry['Role'].strip()
-    name = entry['Name']
-    cast[role] = name
-    if name is not None:
-      scheduled_actors.append(name.strip())
+    actor = entry['Name']
+    if actor is not None:
+      actor = actor.strip()
+    if actor == '':
+      actor = None
+    current_cast[role] = actor
+    actor_current_role[actor] = role
+    if actor is not None:
+      scheduled_actors.append(actor)
 
   # Read in the list of actors known to be unavailable.
 
@@ -138,10 +144,18 @@ def main(argv=sys.argv):
   for entry in actor_reader:
     actor = entry['Name'].strip()
     role = entry['Role'].strip()
-    skill = float(entry['Skill'].strip())
+    try:
+      skill = float(entry['Skill'].strip())
+    except ValueError:
+      print('Error parsing entry %s' % entry)
+      exit(1)
     convenience_str = entry['Convenience']
-    if convenience_str is not None:
-      convenience = float(convenience_str.strip())
+    if convenience_str is not None and convenience_str.strip() != '':
+      try:
+        convenience = float(convenience_str.strip())
+      except ValueError:
+        print('Error parsing entry %s' % entry)
+        exit(1)
       # Check for a bunch of possible errors, then add convenience to the map.
       if actor in actor_convenience:
         # Not every row needs to specify a 'convenience' factor, just one.
@@ -158,14 +172,29 @@ def main(argv=sys.argv):
     if actor in unavailable_actors:
       print('%s is unavailable for %s.' % (actor, role))
       continue
-    if role not in cast:
+    if role not in current_cast:
       print('%s not needed for %s.' % (actor, role))
       continue
     if skill == 0:
       print('Error! Skill score is 0. Typo here?\n%s' % entry)
       return 1
+    if actor in role_actor_skill[role]:
+      print('Error! %s listed twice for %s' % (actor, role))
+      return 1
     role_actor_skill[role][actor] = skill
     role_actors[role].append(actor)
+
+  # Validate cast.csv file, make sure nobody is assigned to a role they don't
+  # play.
+  for role in current_cast:
+    actor = current_cast[role]
+    if actor is None:
+      continue
+    if actor not in role_actor_skill[role]:
+      print('Error! %s assigned to play %s, '
+            'but has no such entry in the actors.csv database.' %
+            (actor, role))
+      exit(1)
 
   # A nested map! (role) -> (actor who can play that role) -> (convenience).
   # Start with the actor's "base" convenience. Then add a bonus if the actor is
@@ -178,9 +207,9 @@ def main(argv=sys.argv):
         print('Error! Found no convenience score for \'%s\'' % actor)
         return 1
       convenience = actor_convenience[actor]
-      if cast[role] is None:
+      if current_cast[role] is None:
         role_actor_convenience[role][actor] = convenience
-      elif cast[role] == actor:
+      elif current_cast[role] == actor:
         # The actor is already booked in this role, add a benefit for not needing
         # to do anything.
         role_actor_convenience[role][actor] = convenience + ALREADY_BOOKED_BENEFIT
@@ -192,7 +221,7 @@ def main(argv=sys.argv):
   # Generate all possible casts based on above databases.
 
   blank_cast = {}
-  for role in cast:
+  for role in current_cast:
     blank_cast[role] = None
   possible_casts = GeneratePossibleCasts(blank_cast, role_actors, scheduled_actors)
   if len(possible_casts) == 0:
@@ -211,15 +240,21 @@ def main(argv=sys.argv):
 
   # Choose a cast at random, weighted by score.
   running_total = 0
-  for cast, score in scored_casts:
+  for potential_cast, score in scored_casts:
     running_total += score
     if running_total > rand:
       rank = scores.index(score)
       rank += 1  # Correct zero-indexing.
-      print('\nSelected cast (Ranked %d out of %d, Score %d%% of Best):' %
+      print('\nRANDOM CAST (Ranked %d out of %d, Score %d%% of Best):' %
             (rank, len(scores), score * 100 / scores[0]))
-      for role in sorted(cast):
-        print('%s: %s' % (role, cast[role]))
+      for role in sorted(potential_cast):
+        potential_actor = potential_cast[role]
+        reassignment = ''
+        if potential_actor in actor_current_role:
+          current_role = actor_current_role[potential_actor]
+          if current_role != role:
+            reassignment = ' (reassigned from %s)' % current_role
+        print('%s: %s%s' % (role, potential_cast[role], reassignment))
       break;
   return 0
 
