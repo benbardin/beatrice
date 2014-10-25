@@ -59,7 +59,7 @@ def NextUnfilledRole(cast):
 # Given a map (role)->(actors who can play that role), removes
 # an actor from all such lists. This is useful if the actor has
 # been potentially assigned to another role.
-def PurgeRoleActor(role_actor, actor):
+def CopyPurgingActor(role_actor, actor):
   role_actor_copy = copy.deepcopy(role_actor)
   for role in role_actor_copy:
     if actor in role_actor_copy[role]:
@@ -92,7 +92,7 @@ def FillCast(cast, role_actor, scheduled_actors):
     for actor in actors:
       cast_copy = copy.deepcopy(cast)
       cast_copy[role] = actor
-      role_actor_copy = PurgeRoleActor(role_actor, actor)
+      role_actor_copy = CopyPurgingActor(role_actor, actor)
       possible_casts.extend(
         FillCast(cast_copy, role_actor_copy, scheduled_actors))
   return possible_casts
