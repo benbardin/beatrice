@@ -73,7 +73,8 @@ def PurgeRoleActor(role_actor, actor):
 # returns the cast.
 # 2. "Inductive case." The function receives a cast missing at least
 # one role. In that case, generates all possible actor assignments 
-# for that role, based on the supplied list 'role_actor' of actors who # can play that role. Then calls itself on EACH of these new potential
+# for that role, based on the supplied list 'role_actor' of actors who
+# can play that role. Then calls itself on EACH of these new potential
 # casts.
 # Guaranteed to terminate since (a) termination condition is "zero
 # unassigned roles", (b) each iteration reduces the number of
