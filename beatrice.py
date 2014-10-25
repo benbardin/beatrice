@@ -130,7 +130,7 @@ def main(argv=sys.argv):
   actor_convenience_entries = {}
   # A map of roles -> list of actors who can play that role.
   role_actors = defaultdict(list)
-  # A nested map! role -> actor who can play that role -> skill
+  # A nested map! (role) -> (actor who can play that role) -> (skill)
   role_actor_skill = defaultdict(lambda : defaultdict(float))
   for entry in actor_reader:
     actor = entry['Name'].strip()
@@ -164,10 +164,10 @@ def main(argv=sys.argv):
     role_actor_skill[role][actor] = skill
     role_actors[role].append(actor)
 
-  # A nested map! role -> actor who can play that role -> convenience.
+  # A nested map! (role) -> (actor who can play that role) -> (convenience).
   # Start with the actor's "base" convenience. Then add a bonus if the actor is
   # already booked for a particular role, or subtract a penalty if a *different*
-  # actor is already booked for a particular role.
+  # actor is already booked for a particular role and would need to be moved.
   role_actor_convenience = defaultdict(lambda : defaultdict(float))
   for role in role_actor_skill:
     for actor in role_actor_skill[role]:
