@@ -10,7 +10,7 @@ import sys
 
 SWITCHING_ROLE_PENALTY = .1
 ALREADY_BOOKED_BENEFIT = .2
-HELPTEXT = '''Call like: ./beatrice.py actors.csv cast.csv unavailable.txt
+HELPTEXT = '''Call like: ./beatrice.py ../actors.csv ../cast.csv ../unavailable.txt
 \nWhere actors.csv is a CSV file like
   Name,Role,Skill,Convenience
 
