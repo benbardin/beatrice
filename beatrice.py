@@ -88,6 +88,7 @@ def FillCast(cast, role_actor, scheduled_actors):
     if CastHasRequiredActors(cast, scheduled_actors):
       possible_casts.append(cast)
   else:
+    # Inductive case. Expand the tree of possible casts.
     actors = role_actor[role]
     for actor in actors:
       cast_copy = copy.deepcopy(cast)
