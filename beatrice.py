@@ -100,7 +100,7 @@ def GeneratePossibleCasts(cast, role_actor, scheduled_actors):
 def main(argv=sys.argv):
   if len(argv) != 4:
     print(HELPTEXT)
-    exit(1)
+    return 1
 
   # Read in the cast, with all actors who have already been scheduled.
 
@@ -148,14 +148,14 @@ def main(argv=sys.argv):
       skill = float(entry['Skill'].strip())
     except ValueError:
       print('Error parsing entry %s' % entry)
-      exit(1)
+      return 1
     convenience_str = entry['Convenience']
     if convenience_str is not None and convenience_str.strip() != '':
       try:
         convenience = float(convenience_str.strip())
       except ValueError:
         print('Error parsing entry %s' % entry)
-        exit(1)
+        return 1
       # Check for a bunch of possible errors, then add convenience to the map.
       if actor in actor_convenience:
         # Not every row needs to specify a 'convenience' factor, just one.
@@ -185,8 +185,12 @@ def main(argv=sys.argv):
     role_actors[role].append(actor)
 
   # Validate cast.csv file, make sure nobody is assigned to a role they don't
-  # play.
+  # play and that every role exists.
   for role in current_cast:
+    if role not in role_actors:
+      print('Error! Found role %s in cast.csv file, but not in actors.csv '
+            'database.' % role)
+      return 1
     actor = current_cast[role]
     if actor is None:
       continue
@@ -194,7 +198,15 @@ def main(argv=sys.argv):
       print('Error! %s assigned to play %s, '
             'but has no such entry in the actors.csv database.' %
             (actor, role))
-      exit(1)
+      return 1
+
+  # Validate unavailable.txt file, make sure every actor mentioned has an entry
+  # in the actors.csv database.
+  for actor in unavailable_actors:
+    if actor not in actor_convenience:
+      print('Error! %s marked as unavailable, but is not present in actors.csv '
+            'database.' % actor)
+      return 1
 
   # A nested map! (role) -> (actor who can play that role) -> (convenience).
   # Start with the actor's "base" convenience. Then add a bonus if the actor is
