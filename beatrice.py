@@ -4,12 +4,14 @@ from collections import defaultdict
 import copy
 import csv
 import random
-import string
 import sys
 
+CAST_QUALITY_THRESHOLD = .75
+# Only consider casts at least as good as this fraction * the 'best' cast.
 SWITCHING_ROLE_PENALTY = .1
 ALREADY_BOOKED_BENEFIT = .2
-HELPTEXT = '''Call like: ./beatrice.py /path/to/actors.csv /path/to/cast.csv /path/to/unavailable.txt
+HELPTEXT = '''Call like:
+./beatrice.py /path/to/actors.csv /path/to/cast.csv /path/to/unavailable.txt
 \nWhere actors.csv (one for all dates) is a CSV file like
   Name,Role,Skill,Convenience
 
@@ -32,12 +34,18 @@ HELPTEXT = '''Call like: ./beatrice.py /path/to/actors.csv /path/to/cast.csv /pa
 # TWEAK ME!
 def ScoreCast(cast, role_actor_convenience, role_actor_skill):
   score = 1
+  empty_cast = True  # For an empty cast, return a score of 0 later.
   for role in cast:
     actor = cast[role]
-    convenience = role_actor_convenience[role][actor]
-    skill = role_actor_skill[role][actor]
-    score *= convenience * skill
-  return score
+    if actor is not None:
+      empty_cast = False
+      convenience = role_actor_convenience[role][actor]
+      skill = role_actor_skill[role][actor]
+      score *= convenience * skill
+  if empty_cast:
+    return 0
+  else:
+    return score
 
 # Check if a potential cast has all the actors in the supplied list.
 # Useful to make sure to include actors who have already
@@ -51,9 +59,12 @@ def CastHasRequiredActors(cast, required_actors):
 
 # Returns the next role with no assigned actor.
 def NextUnfilledRole(cast):
+  empty_roles = []
   for role in cast:
     if cast[role] is None:
-      return role
+      empty_roles.append(role)
+  if empty_roles:
+    return sorted(empty_roles)[0]
   return None
 
 # Given a map (role)->(actors who can play that role), removes
@@ -79,23 +90,45 @@ def CopyPurgingActor(role_actor, actor):
 # unassigned roles", (b) each iteration reduces the number of
 # unassigned roles by 1, and (c) the starting number of unassigned
 # roles must be a positive, finite integer.
-def GeneratePossibleCasts(cast, role_actor, scheduled_actors):
+def GeneratePossibleCasts(cast,
+                          role_actor,
+                          scheduled_actors,
+                          best_score,
+                          role_actor_convenience,
+                          role_actor_skill):
   role = NextUnfilledRole(cast)
   possible_casts = []
   if role is None:
     # Base case. Cast is full.
     if CastHasRequiredActors(cast, scheduled_actors):
       possible_casts.append(cast)
+      best_score = max(best_score,
+                       ScoreCast(cast, role_actor_convenience, role_actor_skill))
   else:
     # Inductive case. Expand the tree of possible casts.
     actors = role_actor[role]
+    actor_convenience = role_actor_convenience[role]
+    actor_skill = role_actor_convenience[role]
+    actors.sort(
+      key=lambda actor: actor_convenience[actor] * actor_skill[actor],
+      reverse=True)
     for actor in actors:
       cast_copy = copy.deepcopy(cast)
       cast_copy[role] = actor
+      if ScoreCast(cast_copy,
+                   role_actor_convenience,
+                   role_actor_skill) < CAST_QUALITY_THRESHOLD * best_score:
+        continue
       role_actor_copy = CopyPurgingActor(role_actor, actor)
-      possible_casts.extend(
-        GeneratePossibleCasts(cast_copy, role_actor_copy, scheduled_actors))
-  return possible_casts
+      children = GeneratePossibleCasts(cast_copy,
+                                       role_actor_copy,
+                                       scheduled_actors,
+                                       best_score,
+                                       role_actor_convenience,
+                                       role_actor_skill)
+      possible_casts.extend(children[0])
+      best_score = max(best_score, children[1])
+  return (possible_casts, best_score)
 
 def main(argv=sys.argv):
   if len(argv) != 4:
@@ -126,7 +159,7 @@ def main(argv=sys.argv):
   with open(sys.argv[3], 'r') as unavailable_file:
     for line in unavailable_file.readlines():
       actor = line.strip()
-      if line is not '':
+      if actor != '':
         unavailable_actors.append(actor)
 
   # Read in the actor database.
@@ -134,22 +167,32 @@ def main(argv=sys.argv):
   actor_reader = csv.DictReader(open(sys.argv[1]))
   # A map of actor -> how convenient it is to book that actor.
   actor_convenience = {}
-  # A map of actor -> entry containing the convenience score.
-  # Used only to validate input.
-  actor_convenience_entries = {}
+  # A map of actor -> original entry containing the convenience score.
+  # Used only to print helpful messages if contradictory information is found.
+  actor_entries = {}
   # A map of roles -> list of actors who can play that role.
   role_actors = defaultdict(list)
   # A nested map! (role) -> (actor who can play that role) -> (skill)
   role_actor_skill = defaultdict(lambda : defaultdict(float))
+  # Used to validate unavailable.txt file. Every unavailable actor should be
+  # mentioned in the database.
+  unavailable_actors_with_entries = set()
   for entry in actor_reader:
     actor = entry['Name'].strip()
     role = entry['Role'].strip()
+    skill_str = entry['Skill'].strip()
+    convenience_str = entry['Convenience']
+    if '' == actor == role == skill_str == convenience_str:
+      continue
     try:
-      skill = float(entry['Skill'].strip())
+      skill = float(skill_str)
     except ValueError:
       print('Error parsing entry %s' % entry)
       return 1
-    convenience_str = entry['Convenience']
+    if actor in unavailable_actors:
+      print('%s is unavailable for %s.' % (actor, role))
+      unavailable_actors_with_entries.add(actor)
+      continue
     if convenience_str is not None and convenience_str.strip() != '':
       try:
         convenience = float(convenience_str.strip())
@@ -162,18 +205,14 @@ def main(argv=sys.argv):
         # Error if multiple convenience factors found.
         print('Error! Convenience scores found for %s in two entries. '
               'Only use one.\nOffending Entries:\n%s\n%s' %
-              (actor, actor_convenience_entries[actor], entry))
+              (actor, actor_entries[actor], entry))
         return 1
       if convenience == 0:
         print('Error! Convenience score is 0. Typo here?\n%s' % entry)
         return 1
       actor_convenience[actor] = convenience
-      actor_convenience_entries[actor] = entry  # Only for input validation.
-    if actor in unavailable_actors:
-      print('%s is unavailable for %s.' % (actor, role))
-      continue
+      actor_entries[actor] = entry  # Only for input validation.
     if role not in current_cast:
-      print('%s not needed for %s.' % (actor, role))
       continue
     if skill == 0:
       print('Error! Skill score is 0. Typo here?\n%s' % entry)
@@ -203,7 +242,7 @@ def main(argv=sys.argv):
   # Validate unavailable.txt file, make sure every actor mentioned has an entry
   # in the actors.csv database.
   for actor in unavailable_actors:
-    if actor not in actor_convenience:
+    if actor not in unavailable_actors_with_entries:
       print('Error! %s marked as unavailable, but is not present in actors.csv '
             'database.' % actor)
       return 1
@@ -235,7 +274,7 @@ def main(argv=sys.argv):
   blank_cast = {}
   for role in current_cast:
     blank_cast[role] = None
-  possible_casts = GeneratePossibleCasts(blank_cast, role_actors, scheduled_actors)
+  possible_casts, best_score = GeneratePossibleCasts(blank_cast, role_actors, scheduled_actors, 0, role_actor_convenience, role_actor_skill)
   if len(possible_casts) == 0:
     print('No possible casts! Try being more flexible in actors.csv')
     return 1
@@ -245,6 +284,8 @@ def main(argv=sys.argv):
   scores = []
   for cast in possible_casts:
     score_for_cast = ScoreCast(cast, role_actor_convenience, role_actor_skill)
+    if score_for_cast < CAST_QUALITY_THRESHOLD * best_score:
+      continue
     scored_casts.append((cast, score_for_cast))
     scores.append(score_for_cast)
   scored_casts.sort(key=lambda x: x[1], reverse=True)
@@ -252,8 +293,8 @@ def main(argv=sys.argv):
 
   # Choose a cast at random, weighted by score.
   running_total = 0
-  rand = random.uniform(0, sum(scores))
-  for potential_cast, score in scored_casts:
+  rand = random.uniform(0, sum(scores[1:]))
+  for potential_cast, score in scored_casts[1:]:
     running_total += score
     if running_total > rand:
       random_cast = potential_cast
