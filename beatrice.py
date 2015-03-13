@@ -4,6 +4,7 @@ from collections import defaultdict
 import copy
 import csv
 import random
+import re
 import sys
 
 CAST_QUALITY_THRESHOLD = .75
@@ -141,8 +142,13 @@ def main(argv=sys.argv):
   current_cast = {}
   actor_current_role = {}
   scheduled_actors = []
+  cast_order = []
+  show_tag_matcher = re.compile('\[.*\]')
   for entry in cast_reader:
     role = entry['Role'].strip()
+    cast_order.append(role)
+    if show_tag_matcher.match(role):
+      continue
     actor = entry['Name']
     if actor is not None:
       actor = actor.strip()
@@ -154,11 +160,11 @@ def main(argv=sys.argv):
       scheduled_actors.append(actor)
 
   # Read in the list of actors known to be unavailable.
-
   unavailable_actors = []
   with open(sys.argv[3], 'r') as unavailable_file:
     for line in unavailable_file.readlines():
       actor = line.strip()
+      print('%s is unavailable.' % actor)
       if actor != '':
         unavailable_actors.append(actor)
 
@@ -190,7 +196,6 @@ def main(argv=sys.argv):
       print('Error parsing entry %s' % entry)
       return 1
     if actor in unavailable_actors:
-      print('%s is unavailable for %s.' % (actor, role))
       unavailable_actors_with_entries.add(actor)
       continue
     if convenience_str is not None and convenience_str.strip() != '':
@@ -258,6 +263,8 @@ def main(argv=sys.argv):
         print('Error! Found no convenience score for \'%s\'' % actor)
         return 1
       convenience = actor_convenience[actor]
+      convenience *= 1 - (ALREADY_BOOKED_BENEFIT + SWITCHING_ROLE_PENALTY)
+      convenience += SWITCHING_ROLE_PENALTY
       if current_cast[role] is None:
         role_actor_convenience[role][actor] = convenience
       elif current_cast[role] == actor:
@@ -290,6 +297,9 @@ def main(argv=sys.argv):
     scores.append(score_for_cast)
   scored_casts.sort(key=lambda x: x[1], reverse=True)
   scores.sort(reverse=True)
+  best_cast = scored_casts[0][0]
+  random_cast = best_cast
+  random_cast_score = scores[0]
 
   # Choose a cast at random, weighted by score.
   running_total = 0
@@ -300,30 +310,52 @@ def main(argv=sys.argv):
       random_cast = potential_cast
       random_cast_score = score
       break
-  best_cast = scored_casts[0][0]
 
   # Print random cast, side by side with best.
   # To do this, write a three-column table, then print row-by-row.
-  cast_matrix = [['ROLES', 'RANDOM CAST', 'BEST CAST']]
-  for role in sorted(random_cast):
+  cast_matrix = [['ROLES', 'BEST CAST', 'RANDOM CAST']]
+  for role in cast_order:
     row = [role]
-    random_actor = random_cast[role]
-    if random_actor in actor_current_role:
-      if role != actor_current_role[random_actor]:
-        random_actor += ' (reassigned from %s)' % actor_current_role[random_actor]
-    row.append(random_actor)
+    if show_tag_matcher.match(role):
+      row.extend(['-', '-'])
+    else:
+      best_actor = best_cast[role]
+      if best_actor in actor_current_role:
+        if role != actor_current_role[best_actor]:
+          best_actor += ' (reassigned from %s)' % actor_current_role[best_actor]
+      row.append(best_actor)
 
-    best_actor = best_cast[role]
-    if best_actor in actor_current_role:
-      if role != actor_current_role[best_actor]:
-        best_actor += ' (reassigned from %s)' % actor_current_role[best_actor]
-    row.append(best_actor)
+      random_actor = random_cast[role]
+      if random_actor in actor_current_role:
+        if role != actor_current_role[random_actor]:
+          random_actor += ' (reassigned from %s)' % actor_current_role[random_actor]
+      row.append(random_actor)
+
     cast_matrix.append(row)
 
-  rank = scores.index(score)
+  # Add unassigned actors
+  unused_actors_best_cast = []
+  unused_actors_random_cast = []
+  for actor in actor_convenience:
+    if actor not in best_cast.values():
+      unused_actors_best_cast.append(actor)
+    if actor not in random_cast.values():
+      unused_actors_random_cast.append(actor)
+  if len(unused_actors_best_cast) != len(unused_actors_random_cast):
+    # The unused lists should have the same size
+    print('Error. Ben goofed.')
+    return 1
+
+  if len(unused_actors_best_cast) > 0:
+    cast_matrix.append(['','',''])
+    cast_matrix.append(['[UNASSIGNED]','-','-'])
+  for i in range(0, len(unused_actors_best_cast)):
+    cast_matrix.append(['-', unused_actors_best_cast[i], unused_actors_random_cast[i]])
+
+  rank = scores.index(random_cast_score)
   rank += 1  # Correct zero-indexing.  
   print('\nRandom Cast ranks %d out of %d, scoring %d%% of Best' %
-        (rank, len(scores), score * 100 / scores[0]))
+        (rank, len(scores), random_cast_score * 100 / scores[0]))
 
   # Reorganize data by columns
   cols = zip(*cast_matrix)
@@ -333,7 +365,7 @@ def main(argv=sys.argv):
   format = ' '.join(['%%%ds' % width for width in col_widths ])
   
   for row in cast_matrix:
-    print(format % tuple(row))
+    print(format % tuple(row))    
   return 0
 
 if __name__ == "__main__":
