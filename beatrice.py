@@ -3,16 +3,16 @@
 from collections import defaultdict
 import copy
 import csv
+import datetime
 import random
 import re
 import sys
 
-CAST_QUALITY_THRESHOLD = .75
 # Only consider casts at least as good as this fraction * the 'best' cast.
 SWITCHING_ROLE_PENALTY = .1
 ALREADY_BOOKED_BENEFIT = .2
 HELPTEXT = '''Call like:
-./beatrice.py /path/to/actors.csv /path/to/cast.csv /path/to/unavailable.txt
+./beatrice.py /path/to/actors.csv /path/to/cast.csv /path/to/unavailable.txt SHOWTIME
 \nWhere actors.csv (one for all dates) is a CSV file like
   Name,Role,Skill,Convenience
 
@@ -20,7 +20,7 @@ HELPTEXT = '''Call like:
   AnotherActor, ARole,      .8,     .6
   ...
 \nAnd cast.csv (one for each date) is a CSV file like
-  Role,Name
+  Role,RelativeCallTime,Name
 
   Role,                  ActorBookedForRole
   UnbookedRole
@@ -28,7 +28,9 @@ HELPTEXT = '''Call like:
   ...
 \nAnd unavailable.txt (one for each date) is a text file like
   UnavailableActor
-  AnotherUnavailableActor'''
+  AnotherUnavailableActor
+
+\nAnd SHOWTIME looks like "3:00PM", "3PM", or "15:00"'''
 
 # Scores a cast, based on how convenient it would be to schedule each
 # actor for each role and how good each actor is at each role.
@@ -118,7 +120,7 @@ def GeneratePossibleCasts(cast,
       cast_copy[role] = actor
       if ScoreCast(cast_copy,
                    role_actor_convenience,
-                   role_actor_skill) < CAST_QUALITY_THRESHOLD * best_score:
+                   role_actor_skill) < best_score:
         continue
       role_actor_copy = CopyPurgingActor(role_actor, actor)
       children = GeneratePossibleCasts(cast_copy,
@@ -131,8 +133,39 @@ def GeneratePossibleCasts(cast,
       best_score = max(best_score, children[1])
   return (possible_casts, best_score)
 
+def timeOfDay(timeString):
+  try:
+    return datetime.datetime.strptime(timeString, '%I:%M%p')
+  except ValueError:
+    pass
+  try:
+    return datetime.datetime.strptime(timeString, '%H:%M')
+  except ValueError:
+    pass
+  try:
+    return datetime.datetime.strptime(timeString, '%I%p')
+  except ValueError:
+    pass
+
+def timeDelta(timeString):
+  groups = re.search('(-)?(\d?\d)?:?(\d\d)?', timeString).groups()
+  h_m = [int(x) if x else 0 for x in groups[1:]]
+  if groups[0]:
+    h_m[0] *= -1
+  return datetime.timedelta(hours=h_m[0], minutes = h_m[1])
+
+def shortFormatTime(time, space=True):
+  if space:
+    timeString = time.strftime('%I:%M %p')
+  else:
+    timeString = time.strftime('%I:%M%p')
+  timeString = re.sub(':00', '', timeString)
+  if timeString[0] == '0':
+    timeString = timeString[1:]
+  return timeString
+
 def main(argv=sys.argv):
-  if len(argv) != 4:
+  if len(argv) != 5:
     print(HELPTEXT)
     return 1
 
@@ -143,12 +176,19 @@ def main(argv=sys.argv):
   actor_current_role = {}
   scheduled_actors = []
   cast_order = []
+  showtime = timeOfDay(sys.argv[4])
+  call_times = {}
+  if showtime is None:
+    print('Showtime is in a bad format.')
+    return 1
+
   show_tag_matcher = re.compile('\[.*\]')
   for entry in cast_reader:
     role = entry['Role'].strip()
     cast_order.append(role)
     if show_tag_matcher.match(role):
       continue
+
     actor = entry['Name']
     if actor is not None:
       actor = actor.strip()
@@ -158,6 +198,14 @@ def main(argv=sys.argv):
     actor_current_role[actor] = role
     if actor is not None:
       scheduled_actors.append(actor)
+
+    relative_calltime = entry['CallTime']
+    if relative_calltime is None:
+      print('Need call time for role %s' % role)
+      return 1
+    relative_calltime = relative_calltime.strip()
+    calltime = showtime + timeDelta(relative_calltime)
+    call_times[role] = calltime
 
   # Read in the list of actors known to be unavailable.
   unavailable_actors = []
@@ -288,49 +336,24 @@ def main(argv=sys.argv):
 
   # Score all of the casts.
   scored_casts = []
-  scores = []
   for cast in possible_casts:
     score_for_cast = ScoreCast(cast, role_actor_convenience, role_actor_skill)
-    if score_for_cast < CAST_QUALITY_THRESHOLD * best_score:
-      continue
     scored_casts.append((cast, score_for_cast))
-    scores.append(score_for_cast)
   scored_casts.sort(key=lambda x: x[1], reverse=True)
-  scores.sort(reverse=True)
   best_cast = scored_casts[0][0]
-  random_cast = best_cast
-  random_cast_score = scores[0]
 
-  # Choose a cast at random, weighted by score.
-  running_total = 0
-  rand = random.uniform(0, sum(scores[1:]))
-  for potential_cast, score in scored_casts[1:]:
-    running_total += score
-    if running_total > rand:
-      random_cast = potential_cast
-      random_cast_score = score
-      break
-
-  # Print random cast, side by side with best.
-  # To do this, write a three-column table, then print row-by-row.
-  cast_matrix = [['ROLES', 'BEST CAST', 'RANDOM CAST']]
+  cast_matrix = [['ROLES', 'CALL TIME', 'CAST',]]
   for role in cast_order:
     row = [role]
     if show_tag_matcher.match(role):
       row.extend(['-', '-'])
     else:
+      row.append(shortFormatTime(call_times[role]))
       best_actor = best_cast[role]
       if best_actor in actor_current_role:
         if role != actor_current_role[best_actor]:
           best_actor += ' (reassigned from %s)' % actor_current_role[best_actor]
       row.append(best_actor)
-
-      random_actor = random_cast[role]
-      if random_actor in actor_current_role:
-        if role != actor_current_role[random_actor]:
-          random_actor += ' (reassigned from %s)' % actor_current_role[random_actor]
-      row.append(random_actor)
-
     cast_matrix.append(row)
 
   # Add unassigned actors
@@ -339,23 +362,12 @@ def main(argv=sys.argv):
   for actor in actor_convenience:
     if actor not in best_cast.values():
       unused_actors_best_cast.append(actor)
-    if actor not in random_cast.values():
-      unused_actors_random_cast.append(actor)
-  if len(unused_actors_best_cast) != len(unused_actors_random_cast):
-    # The unused lists should have the same size
-    print('Error. Ben goofed.')
-    return 1
 
   if len(unused_actors_best_cast) > 0:
-    cast_matrix.append(['','',''])
-    cast_matrix.append(['[UNASSIGNED]','-','-'])
+    cast_matrix.append(['', '', ''])
+    cast_matrix.append(['[UNASSIGNED]', '-', '-'])
   for i in range(0, len(unused_actors_best_cast)):
-    cast_matrix.append(['-', unused_actors_best_cast[i], unused_actors_random_cast[i]])
-
-  rank = scores.index(random_cast_score)
-  rank += 1  # Correct zero-indexing.  
-  print('\nRandom Cast ranks %d out of %d, scoring %d%% of Best' %
-        (rank, len(scores), random_cast_score * 100 / scores[0]))
+    cast_matrix.append(['-', '-', unused_actors_best_cast[i]])
 
   # Reorganize data by columns
   cols = zip(*cast_matrix)
@@ -363,9 +375,15 @@ def main(argv=sys.argv):
   col_widths = [ max(len(value) for value in col) + 2 for col in cols ]
   # Create a suitable format string
   format = ' '.join(['%%%ds' % width for width in col_widths ])
-  
+
+  print('')
   for row in cast_matrix:
-    print(format % tuple(row))    
+    print(format % tuple(row))
+
+  print('\nEmail-able lines:\n')
+  for role in best_cast:
+    print('%s: %s, %s' % (role, best_cast[role], shortFormatTime(call_times[role], space=False)))
+
   return 0
 
 if __name__ == "__main__":
