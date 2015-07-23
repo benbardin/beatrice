@@ -381,8 +381,11 @@ def main(argv=sys.argv):
     print(format % tuple(row))
 
   print('\nEmail-able lines:\n')
-  for role in best_cast:
-    print('%s: %s, %s' % (role, best_cast[role], shortFormatTime(call_times[role], space=False)))
+  for role in cast_order:
+    if show_tag_matcher.match(role):
+      print(role)
+    else:
+      print('%s: %s, %s' % (role, best_cast[role], shortFormatTime(call_times[role], space=False)))
 
   return 0
 
