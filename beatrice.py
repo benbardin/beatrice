@@ -22,9 +22,9 @@ HELPTEXT = '''Call like:
 \nAnd cast.csv (one for each date) is a CSV file like
   Role,RelativeCallTime,Name
 
-  Role,                  ActorBookedForRole
-  UnbookedRole
-  AnotherUnbookedRole
+  Role,                  , 2,    ActorBookedForRole
+  UnbookedRole           , -:30,
+  AnotherUnbookedRole    , 1:30,
   ...
 \nAnd unavailable.txt (one for each date) is a text file like
   UnavailableActor
